@@ -2,18 +2,22 @@ import { exit } from "process";
 import { Browser, Page } from "puppeteer";
 import { importWallets, importProxies, importPassword } from "./file_reader";
 import puppeteer from "puppeteer";
+import { performance } from "perf_hooks";
 // const puppeteer = require("puppeteer");
+
+const DEBUG: boolean = false;
 
 const url = "https://wallet.coinbase.com/ocs/progress";
 
 var fs = require("fs");
 var util = require("util");
-var log_file = fs.createWriteStream(__dirname + "/debug.log", { flags: "w" });
+var log_file = fs.createWriteStream(`./logs/${Date.now().toString()}.csv`, {
+  flags: "w",
+});
 var log_stdout = process.stdout;
 
 const log = (d: string) => {
-  log_file.write(util.format(d) + "\n");
-  log_stdout.write(util.format(d) + "\n");
+  log_file.write(util.format(d));
 };
 
 // enter site
@@ -67,6 +71,11 @@ function delay(ms: number) {
 }
 
 const navigate_to_login = async (page: Page) => {
+  // see if login button loaded
+  const select = await page.$$(walletSelectButton);
+  if (select.length == 0) {
+    await page.click(connectRainbowButton);
+  }
   await page.click(walletSelectButton);
   await page.click(mobileSelectButton);
 };
@@ -107,7 +116,7 @@ const spin = async (page: Page) => {
   const isSpun = await page.$$(spin2win);
   if (isSpun.length == 0) {
     console.error("Already spun, \nSkipping...");
-    return;
+    return -1;
   }
 
   // await for spin wheel to load
@@ -126,8 +135,10 @@ const spin = async (page: Page) => {
       maxWinElement,
     );
     console.log(maxWin);
+    return maxWin;
   } else {
     console.error("Could not get spin result");
+    return -2;
   }
 };
 
@@ -156,31 +167,38 @@ interface Proxy {
 }
 
 const work = async (privateKey: string, proxy: Proxy) => {
-  log(`PrivateKey ${privateKey}`);
-
+  console.log(`PrivateKey ${privateKey}`);
   const browser: Browser = await puppeteer.launch({
-    headless: false,
+    headless: !DEBUG,
     slowMo: 30,
     args: [
-      "--disable-extensions-except=./extentions/wallet/",
-      "--load-extension=./extentions/wallet/",
-      `--proxy-server=${proxy.ip}:${proxy.port}`,
+      "--disable-extensions-except=./extentions/wallet/", // allow extention to be loaded
+      "--load-extension=./extentions/wallet/", // load extention
+      `--proxy-server=${proxy.ip}:${proxy.port}`, // connect to proxy
     ],
   });
   const page: Page = await browser.newPage();
 
+  // login to proxy
   await page.authenticate({
     username: proxy.username,
     password: proxy.password,
   });
 
+  // add new window event listener
   browser.on("targetcreated", (event) => {
     handleNewPage(event, privateKey);
   });
+
   await page.goto(url, { waitUntil: "load" });
-  await page.setViewport({ width: 1080, height: 1024 });
+  await page.setViewport({
+    width: 1280,
+    height: 720,
+    deviceScaleFactor: 1,
+  });
   await delay(5000);
 
+  // see if weclome screen close button is loaded
   const welcome = await page.$$(welcomeCloseButton);
   if (welcome.length != 0) {
     await page.click(welcomeCloseButton);
@@ -205,12 +223,17 @@ const work = async (privateKey: string, proxy: Proxy) => {
   const spinBTN = await page.$$(spinSelectButton);
   if (spinBTN.length == 0) {
     console.error("Cannot find the spin button");
-    delay(2000);
+    if (DEBUG) {
+      delay(2000);
+    }
     return;
   }
 
-  await spin(page);
-  await browser.close();
+  const win = await spin(page);
+  log(`${privateKey}, ${win}\n`);
+  if (!DEBUG) {
+    await browser.close();
+  }
 };
 
 const parseProxy = (proxy: string): Proxy => {
@@ -225,6 +248,31 @@ const parseProxy = (proxy: string): Proxy => {
   return s;
 };
 
+function timeConversion(duration: number) {
+  const portions: string[] = [];
+
+  const msInHour = 1000 * 60 * 60;
+  const hours = Math.trunc(duration / msInHour);
+  if (hours > 0) {
+    portions.push(hours + "h");
+    duration = duration - hours * msInHour;
+  }
+
+  const msInMinute = 1000 * 60;
+  const minutes = Math.trunc(duration / msInMinute);
+  if (minutes > 0) {
+    portions.push(minutes + "m");
+    duration = duration - minutes * msInMinute;
+  }
+
+  const seconds = Math.trunc(duration / 1000);
+  if (seconds > 0) {
+    portions.push(seconds + "s");
+  }
+
+  return portions.join(" ");
+}
+
 const main = async () => {
   const proxies = await importProxies();
   const wallets = await importWallets();
@@ -236,14 +284,27 @@ const main = async () => {
     exit(-1);
   }
 
+  const start = Date.now();
+  var counter = 0;
   const amount = proxies.length;
-  // add counter i/max
+  // add counter i/max done
   //
   // add export to csv
   for (var i = 0; i < amount; i++) {
     console.info(`${i}/${amount}`);
-    await work(wallets[i], parseProxy(proxies[i]));
+    try {
+      await work(wallets[i], parseProxy(proxies[i]));
+      counter++;
+    } catch (exception) {
+      console.log(exception);
+    }
   }
+
+  const end = Date.now();
+
+  console.log(
+    `Done ${counter} wallets, time taken: ${timeConversion(end - start)}`,
+  );
 };
 
 main();
