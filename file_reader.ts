@@ -28,5 +28,10 @@ export const importWallets = async () => {
 };
 
 export const importPassword = async () => {
-  return parseFilesLineByLine("secrets/password.txt");
+  const pw = await parseFilesLineByLine("secrets/password.txt");
+  return pw[0];
+};
+
+export const importProxies = async () => {
+  return parseFilesLineByLine("secrets/proxies.txt");
 };
