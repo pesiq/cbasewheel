@@ -39,6 +39,7 @@ Use a strong password or script will crash.
 ```
 YOUR_PASSWORD
 ```
+**Chrome Extention** This script needs the coinbase chrome extention to operate. Add the folder with `manifest.json` to `extentions/` directory
 
 ### Run the Project
 
