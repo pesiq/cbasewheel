@@ -287,9 +287,7 @@ const main = async () => {
   const start = Date.now();
   var counter = 0;
   const amount = proxies.length;
-  // add counter i/max done
-  //
-  // add export to csv
+
   for (var i = 0; i < amount; i++) {
     console.info(`${i}/${amount}`);
     try {
